@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>太空探險：星際終焉 2026</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body { margin: 0; padding: 0; background-color: #020205; color: #fff; font-family: 'Segoe UI', "Microsoft JhengHei", sans-serif; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #game-container { position: relative; width: 800px; height: 600px; background: radial-gradient(circle, #09091e 0%, #010103 100%); border: 3px solid #1e293b; box-shadow: 0 0 35px rgba(0, 240, 255, 0.25); cursor: none; overflow: hidden; }
+        canvas { display: block; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(3, 3, 8, 0.9); z-index: 100; }
+        .hidden { display: none !important; }
+        h1 { font-size: 46px; color: #00f0ff; text-shadow: 0 0 20px rgba(0,240,255,0.6); margin-bottom: 35px; letter-spacing: 3px; }
+        .menu-btn { padding: 14px 40px; font-size: 20px; background: #0f172a; color: #fff; border: 2px solid #38bdf8; border-radius: 8px; cursor: pointer; transition: 0.2s; margin: 10px; font-weight: bold; }
+        .menu-btn:hover { background: #38bdf8; color: #000; box-shadow: 0 0 20px #38bdf8; transform: scale(1.05); }
+        .diff-group { display: flex; margin-bottom: 25px; }
+        .diff-btn { padding: 12px 24px; background: #111827; color: #64748b; border: 2px solid #1e293b; margin: 0 6px; cursor: pointer; border-radius: 6px; font-weight: bold; font-size: 16px; transition: 0.2s; }
+        .diff-btn.active { color: #fff; background: #0284c7; border-color: #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.5); }
+        #hud { position: absolute; top: 0; left: 0; width: 100%; padding: 15px; display: flex; justify-content: space-between; font-family: monospace; font-size: 16px; pointer-events: none; z-index: 50; }
+        .hud-card { background: rgba(15, 23, 42, 0.75); padding: 10px 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(5px); }
+        #hp-bar { width: 140px; height: 10px; background: #334155; border-radius: 5px; margin-top: 6px; overflow: hidden; }
+        #hp-inner { width: 100%; height: 100%; background: #ef4444; transition: width 0.1s; }
+        #boss-hud { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); width: 550px; background: rgba(15, 23, 42, 0.9); border: 2px solid #ef4444; border-radius: 8px; padding: 12px; z-index: 50; display: none; box-shadow: 0 0 20px rgba(239,68,68,0.3); }
+        #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(90deg, #dc2626, #f87171); transition: width 0.05s; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="hud" class="hidden">
+        <div class="hud-card">
+            <span style="color: #ef4444; font-weight: bold;">裝甲值 HP: <span id="hp-txt">200</span></span>
+            <div id="hp-bar"><div id="hp-inner"></div></div>
+        </div>
+        <div class="hud-card" style="text-align: center;">WAVE 進度<br><span id="wave-txt" style="font-size: 22px; font-weight: bold; color: #f59e0b;">1 / 10</span></div>
+        <div class="hud-card" style="text-align: right;">星際得分 SCORE<br><span id="score-txt" style="font-size: 22px; font-weight: bold; color: #38bdf8;">0</span></div>
+    </div>
+
+    <div id="boss-hud">
+        <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px; font-weight: bold;">
+            <span id="boss-name" style="color: #f87171; letter-spacing: 1px;">BOSS</span>
+            <span id="boss-hp-txt">1000/1000</span>
+        </div>
+        <div style="width: 100%; height: 12px; background: #1e293b; border-radius: 6px; overflow: hidden;">
+            <div id="boss-hp-inner"></div>
+        </div>
+    </div>
+
+    <div id="main-menu" class="overlay">
+        <h1>太空探險：星際終焉</h1>
+        <div class="diff-group">
+            <button class="diff-btn active" onclick="setDiff('easy', this)">簡單模式 (章魚王)</button>
+            <button class="diff-btn" onclick="setDiff('normal', this)">普通模式 (幽靈王)</button>
+            <button class="diff-btn" onclick="setDiff('hard', this)">困難模式 (末日飛龍)</button>
+        </div>
+        <button class="menu-btn" onclick="startGame()">啟動引擎．出航</button>
+    </div>
+
+    <div id="game-over" class="overlay hidden">
+        <h1 id="end-title">航線結束</h1>
+        <p style="font-size: 24px; color: #94a3b8; margin-bottom: 30px;">探險最終總得分：<span id="final-score" style="color: #38bdf8; font-size: 36px; font-weight: bold;">0</span></p>
+        <button class="menu-btn" onclick="backToMenu()">返回星際總部</button>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+</div>
+
+<script>
+// ================= 8-Bit 音效合成引擎 =================
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let bgmInterval = null;
+
+function playSound(type) {
+    try {
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        let now = audioCtx.currentTime;
+        
+        if (type === 'laser') {
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(700, now);
+            osc.frequency.exponentialRampToValueAtTime(180, now + 0.1);
+            gain.gain.setValueAtTime(0.12, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
+            osc.start(); osc.stop(now + 0.1);
+        } else if (type === 'hit') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(160, now);
+            osc.frequency.linearRampToValueAtTime(60, now + 0.12);
+            gain.gain.setValueAtTime(0.15, now); gain.gain.linearRampToValueAtTime(0, now + 0.12);
+            osc.start(); osc.stop(now + 0.12);
+        } else if (type === 'score') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(783.99, now + 0.06);
+            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.18);
+            osc.start(); osc.stop(now + 0.18);
+        } else if (type === 'hurt') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, now);
+            osc.frequency.linearRampToValueAtTime(20, now + 0.25);
+            gain.gain.setValueAtTime(0.35, now); gain.gain.linearRampToValueAtTime(0, now + 0.25);
+            osc.start(); osc.stop(now + 0.25);
+        }
+    } catch(e){}
+}
+
+function startBGM() {
+    stopBGM();
+    try {
+        let melody = [146.83, 164.81, 196.00, 220.00, 196.00, 164.81]; let step = 0;
+        bgmInterval = setInterval(() => {
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(melody[step % melody.length], audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.06, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.35);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.38); step++;
+        }, 350);
+    } catch(e){}
+}
+function stopBGM() { if(bgmInterval) { clearInterval(bgmInterval); bgmInterval = null; } }
+
+// ================= 遊戲核心變數與設定 =================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let gameState = 'menu', difficulty = 'easy', score = 0, playerHp = 200;
+let currentWave = 1, waveTimer = 0, stateTimer = 0, frameCount = 0;
+let mouseX = 400, mouseY = 500, lastAutoFireTime = 0;
+
+// ---- 載入與設定遊戲圖片資源 ----
+const imgPlayer = new Image(); imgPlayer.src = 'player.png';
+
+// 新增的 Boss 本體圖片
+const imgBossEasy = new Image();   imgBossEasy.src = '章魚.png';
+const imgBossNormal = new Image(); imgBossNormal.src = '幽靈.png';
+const imgBossHard = new Image();   imgBossHard.src = '飛龍.png';
+const imgBossHardInvis = new Image(); imgBossHardInvis.src = '隱形後.png';
+
+// 新增的彈幕圖片
+const imgProjStone = new Image();     imgProjStone.src = '石頭.png';
+const imgProjGhostFire = new Image(); imgProjGhostFire.src = '鬼火.png';
+const imgProjAcid = new Image();      imgProjAcid.src = '腐蝕酸.png';
+const imgProjLava = new Image();      imgProjLava.src = '熔岩石.png';
+const imgProjFire = new Image();      imgProjFire.src = '火焰.png';
+
+const imgObstacles = {
+    gravel: new Image(), comet: new Image(), meteor: new Image(), vessel: new Image(), planet: new Image()
+};
+imgObstacles.gravel.src = 'gravel.png';
+imgObstacles.comet.src = 'comet.png';
+imgObstacles.meteor.src = 'meteor.png';
+imgObstacles.vessel.src = 'vessel.png';
+imgObstacles.planet.src = 'planet.png';
+
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+
+function setDiff(diff, btn) {
+    difficulty = diff;
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+let player, obstacles, missiles, bossProjectiles, floatTexts, indicators, boss;
+
+class Player {
+    constructor() { this.w = 30; this.h = 30; this.x = 400; this.y = 500; this.dotTicks = 0; this.dotTimer = 0; }
+    update() {
+        this.x = mouseX - this.w / 2; this.y = mouseY - this.h / 2;
+        if (this.x < 0) this.x = 0; if (this.x > canvas.width - this.w) this.x = canvas.width - this.w;
+        if (this.y < 0) this.y = 0; if (this.y > canvas.height - this.h) this.y = canvas.height - this.h;
+
+        if (this.dotTicks > 0) {
+            this.dotTimer++;
+            if (this.dotTimer >= 60) {
+                playerHp -= 5; this.dotTicks--; this.dotTimer = 0;
+                floatTexts.push(new FloatText(this.x + 15, this.y, "-5", "#ef4444")); playSound('hurt');
+                if (playerHp <= 0) endGame(false);
+            }
+        }
+    }
+    draw() {
+        ctx.save();
+        if (this.dotTicks > 0) ctx.filter = 'hue-rotate(90deg) drop-shadow(0 0 6px #22c55e)';
+        ctx.drawImage(imgPlayer, this.x, this.y, this.w, this.h);
+        ctx.restore();
+    }
+}
+
+class Obstacle {
+    constructor(type, speedMult) {
+        this.type = type; this.hp = 30;
+        switch(type) {
+            case 'gravel': this.size = 30; this.pts = 10; break;
+            case 'comet': this.size = 40; this.pts = 8; break;
+            case 'meteor': this.size = 52; this.pts = 6; break;
+            case 'vessel': this.size = 64; this.pts = 4; break;
+            case 'planet': this.size = 125; this.pts = 3; break;
+        }
+        this.x = Math.random() * (canvas.width - this.size); this.y = -this.size;
+        this.speed = (1.2 + Math.random() * 1.6) * speedMult;
+    }
+    update() { this.y += this.speed; }
+    draw() { ctx.drawImage(imgObstacles[this.type], this.x, this.y, this.size, this.size); }
+}
+
+class FloatText {
+    constructor(x, y, txt, color) { this.x = x; this.y = y; this.txt = txt; this.color = color; this.alpha = 1; this.vy = -1.5; }
+    update() { this.y += this.vy; this.alpha -= 0.018; }
+    draw() { ctx.save(); ctx.globalAlpha = this.alpha; ctx.fillStyle = this.color; ctx.font = "bold 18px Courier New"; ctx.fillText(this.txt, this.x, this.y); ctx.restore(); }
+}
+
+class Indicator {
+    constructor(type, data, duration) { this.type = type; this.data = data; this.life = duration; } 
+    draw() {
+        ctx.save(); ctx.strokeStyle = 'rgba(239, 68, 68, ' + (0.35 + Math.sin(frameCount * 0.2) * 0.25) + ')';
+        ctx.lineWidth = 2.5; ctx.setLineDash([6, 4]);
+        if (this.type === 'rect') ctx.strokeRect(this.data.x, this.data.y, this.data.w, this.data.h);
+        if (this.type === 'circle') { ctx.beginPath(); ctx.arc(this.data.x, this.data.y, this.data.r, 0, Math.PI*2); ctx.stroke(); }
+        if (this.type === 'line') { ctx.beginPath(); ctx.moveTo(this.data.x1, this.data.y1); ctx.lineTo(this.data.x2, this.data.y2); ctx.stroke(); }
+        ctx.restore();
+    }
+}
+
+class BossProjectile {
+    constructor(x, y, vx, vy, type, cfg = {}) {
+        this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.type = type;
+        this.size = cfg.size || 12; this.color = cfg.color || '#fff'; this.dmg = cfg.dmg || 10;
+        this.bounces = cfg.bounces || 0; this.hp = cfg.hp || null; this.maxHp = cfg.hp || null;
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.type === 'fire') { this.x += Math.sin(frameCount * 0.15) * 3.5; }
+        if (this.bounces > 0) {
+            if (this.x <= 0 || this.x + this.size >= canvas.width) { this.vx *= -1; this.bounces--; }
+            if (this.y <= 0 || this.y + this.size >= canvas.height) { this.vy *= -1; this.bounces--; }
+        }
+    }
+    draw() { 
+        let img = null;
+        if (this.type === 'stone') img = imgProjStone;
+        else if (this.type === 'slime') img = imgProjGhostFire; // 用鬼火代替原本的綠史萊姆
+        else if (this.type === 'acid') img = imgProjAcid;
+        else if (this.type === 'lava') img = imgProjLava;
+        else if (this.type === 'fire') img = imgProjFire;
+        else if (this.type === 'lava_frag') img = imgProjLava;
+
+        if (img && img.complete && img.naturalWidth !== 0) {
+            // 火焰與腐蝕酸是條狀長型，寬度調窄、長度拉長看起來更自然
+            let drawW = this.size;
+            let drawH = this.size;
+            if (this.type === 'acid' || this.type === 'fire') {
+                drawW = this.size * 0.6; drawH = this.size * 1.4;
+            }
+            ctx.drawImage(img, this.x - drawW/2, this.y - drawH/2, drawW, drawH);
+        } else {
+            ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size/2, 0, Math.PI*2); ctx.fill(); 
+        }
+
+        if (this.hp !== null && this.hp < this.maxHp) {
+            ctx.fillStyle = '#ff0000'; ctx.fillRect(this.x - this.size/2, this.y - this.size/2 - 8, this.size, 3);
+            ctx.fillStyle = '#00ff00'; ctx.fillRect(this.x - this.size/2, this.y - this.size/2 - 8, this.size * (this.hp / this.maxHp), 3);
+        }
+    }
+}
+
+class FinalBoss {
+    constructor() {
+        this.w = 160; this.h = 160; this.x = canvas.width/2 - 80; this.y = -180; this.targetY = 60; this.vx = 2.5;
+        this.timerA = 0; this.timerB = 0; this.invis = false; this.invisTick = 0;
+        if (difficulty === 'easy') { this.hp = 500; this.name = "深海巨章魚"; this.color = "#a855f7"; }
+        else if (difficulty === 'normal') { this.hp = 800; this.name = "遠古大幽靈"; this.color = "#22c55e"; this.ccw = true; }
+        else { this.hp = 1200; this.name = "煉獄黑飛龍"; this.color = "#f43f5e"; this.w = 200; this.h = 200; this.x = canvas.width/2 - 100; }
+        this.maxHp = this.hp;
+    }
+    update() {
+        if (this.y < this.targetY) { this.y += 2; return; }
+        this.x += this.vx; if (this.x <= 15 || this.x + this.w >= canvas.width - 15) this.vx *= -1;
+        this.timerA++; this.timerB++;
+
+        let pCenterX = player.x + player.w/2; let pCenterY = player.y + player.h/2;
+        let bCenterX = this.x + this.w/2; let bCenterY = this.y + this.h;
+
+        if (difficulty === 'easy') {
+            if (this.timerA === 4 * 60) { indicators.push(new Indicator('circle', { x: pCenterX, y: pCenterY, r: 120 }, 60)); }
+            if (this.timerA >= 5 * 60) {
+                this.timerA = 0; playSound('hit');
+                let baseAngle = Math.atan2(pCenterY - bCenterY, pCenterX - bCenterX);
+                for (let i = 0; i < 10; i++) {
+                    let angle = baseAngle + (i - 4.5) * 0.18;
+                    bossProjectiles.push(new BossProjectile(bCenterX, bCenterY, Math.cos(angle) * 2.0, Math.sin(angle) * 2.0, 'stone', { size: 36, color: '#a8a29e', dmg: 15 }));
+                }
+            }
+        } 
+        else if (difficulty === 'normal') {
+            if (this.timerA === 4 * 60) { indicators.push(new Indicator('circle', { x: pCenterX, y: pCenterY, r: 100 }, 60)); }
+            if (this.timerA >= 5 * 60) {
+                this.timerA = 0;
+                let baseAngle = Math.atan2(pCenterY - bCenterY, pCenterX - bCenterX);
+                for (let i = 0; i < 15; i++) {
+                    let order = this.ccw ? i : (14 - i);
+                    let angle = baseAngle + (order - 7) * 0.15;
+                    bossProjectiles.push(new BossProjectile(bCenterX, bCenterY, Math.cos(angle) * 3.8, Math.sin(angle) * 3.8, 'slime', { size: 24, color: '#84cc16', dmg: 30, bounces: 4 }));
+                }
+                this.ccw = !this.ccw;
+            }
+            if (this.timerB === 8 * 60) { indicators.push(new Indicator('line', { x1: bCenterX, y1: bCenterY, x2: pCenterX, y2: pCenterY }, 60)); }
+            if (this.timerB >= 9 * 60) {
+                this.timerB = 0;
+                let baseAngle = Math.atan2(pCenterY - bCenterY, pCenterX - bCenterX);
+                for (let i = 0; i < 16; i++) {
+                    if (i >= 7 && i <= 9) continue;
+                    setTimeout(() => {
+                        if (gameState === 'playing' && boss) {
+                            let angle = baseAngle + (i - 7.5) * 0.16;
+                            bossProjectiles.push(new BossProjectile(bCenterX, bCenterY, Math.cos(angle) * 4.2, Math.sin(angle) * 4.2, 'acid', { size: 26, color: '#22c55e', dmg: 0 }));
+                        }
+                    }, i * 45);
+                }
+            }
+        } 
+        else {
+            this.invisTick++;
+            if (this.invisTick >= 7 * 60) {
+                this.invis = true;
+                if (this.invisTick >= 12 * 60) { this.invis = false; this.invisTick = 0; }
+            }
+            if (this.timerA === 4 * 60) { indicators.push(new Indicator('circle', { x: pCenterX, y: pCenterY, r: 150 }, 60)); }
+            if (this.timerA >= 5 * 60) {
+                this.timerA = 0;
+                let baseAngle = Math.atan2(pCenterY - bCenterY, pCenterX - bCenterX);
+                for (let i = 0; i < 5; i++) {
+                    let angle = baseAngle + (i - 2) * 0.22;
+                    bossProjectiles.push(new BossProjectile(bCenterX, bCenterY, Math.cos(angle) * 5.5, Math.sin(angle) * 5.5, 'lava', { size: 52, color: '#ea580c', dmg: 40, hp: 30 }));
+                }
+            }
+            if (this.timerB === 10 * 60) { indicators.push(new Indicator('rect', { x: pCenterX - 100, y: 0, w: 200, h: canvas.height }, 60)); }
+            if (this.timerB >= 11 * 60) {
+                let waveFrame = this.timerB - 11 * 60;
+                if (waveFrame < 5 * 60) {
+                    if (waveFrame % 4 === 0) {
+                        let baseAngle = Math.atan2(pCenterY - bCenterY, pCenterX - bCenterX);
+                        bossProjectiles.push(new BossProjectile(bCenterX, bCenterY, Math.cos(baseAngle) * 5.8, Math.sin(baseAngle) * 5.8, 'fire', { size: 32, color: '#f43f5e', dmg: 0 }));
+                    }
+                } else { this.timerB = 0; }
+            }
+        }
+    }
+    draw() {
+        ctx.save();
+        let img = null;
+        if (difficulty === 'easy') img = imgBossEasy;
+        else if (difficulty === 'normal') img = imgBossNormal;
+        else img = this.invis ? imgBossHardInvis : imgBossHard;
+
+        if (img && img.complete && img.naturalWidth !== 0) {
+            ctx.drawImage(img, this.x, this.y, this.w, this.h);
+        } else {
+            ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y, this.w, this.h);
+        }
+        ctx.restore();
+    }
+}
+
+// ================= 遊戲運行主流程 =================
+function startGame() {
+    try { audioCtx.resume(); } catch(e){} startBGM();
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    
+    gameState = 'playing'; score = 0; playerHp = 200; currentWave = 1; waveTimer = 0; frameCount = 0; lastAutoFireTime = 0;
+    player = new Player(); obstacles = []; missiles = []; bossProjectiles = []; floatTexts = []; indicators = []; boss = null;
+    document.getElementById('boss-hud').style.display = 'none';
+    
+    triggerWaveAnnounce(); requestAnimationFrame(gameLoop);
+}
+
+function triggerWaveAnnounce() {
+    gameState = 'announcing'; stateTimer = 0;
+    if (currentWave === 10) document.getElementById('boss-hud').style.display = 'block';
+}
+
+function spawnObstacles() {
+    let speedMult = 1, spawnInterval = 45;
+    if (difficulty === 'easy') { speedMult = 1.0 + currentWave * 0.08; spawnInterval = Math.max(25, 45 - currentWave * 2); }
+    else if (difficulty === 'normal') { speedMult = 1.1 + currentWave * 0.18; spawnInterval = Math.max(16, 40 - currentWave * 2.5); }
+    else { speedMult = 1.3 + currentWave * 0.35; spawnInterval = Math.max(8, 32 - currentWave * 3.5); }
+    
+    if (frameCount % spawnInterval === 0) {
+        let pool = ['comet', 'meteor', 'meteor', 'meteor', 'planet', 'planet', 'gravel', 'gravel', 'vessel', 'vessel', 'vessel', 'vessel'];
+        let picked = pool[Math.floor(Math.random() * pool.length)];
+        obstacles.push(new Obstacle(picked, speedMult));
+    }
+}
+
+function backToMenu() { stopBGM(); document.getElementById('game-over').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); document.getElementById('hud').classList.add('hidden'); document.getElementById('boss-hud').style.display = 'none'; gameState = 'menu'; ctx.clearRect(0,0,canvas.width,canvas.height); }
+function endGame(win) { gameState = 'gameover'; stopBGM(); document.getElementById('game-over').classList.remove('hidden'); document.getElementById('final-score').innerText = score; document.getElementById('end-title').innerText = win ? "🎉 完美消滅首領！星際和平 🎉" : "🚀 戰機裝甲歸零！航線失敗 🚀"; document.getElementById('end-title').style.color = win ? "#22c55e" : "#ef4444"; }
+
+function isColliding(rect1, rect2) { return rect1.x < rect2.x + rect2.w && rect1.x + rect1.w > rect2.x && rect1.y < rect2.y + rect2.h && rect1.y + rect1.h > rect2.y; }
+
+function gameLoop() {
+    if (gameState === 'menu' || gameState === 'gameover') return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    frameCount++;
+
+    if (gameState === 'announcing') {
+        stateTimer++; player.update(); player.draw();
+        ctx.fillStyle = '#f59e0b'; ctx.font = "bold 38px 'Segoe UI'"; ctx.textAlign = "center";
+        ctx.fillText(currentWave === 10 ? "⚠️ WARNING: 星際首領襲來 ⚠️" : "第 " + currentWave + " 波 準備", canvas.width/2, canvas.height/2);
+        ctx.textAlign = "left";
+        if (stateTimer >= 2 * 60) { gameState = 'playing'; waveTimer = 0; if (currentWave === 10) boss = new FinalBoss(); }
+    } else if (gameState === 'playing') {
+        if (currentWave < 10) {
+            waveTimer++; spawnObstacles();
+            if (waveTimer >= 20 * 60) { gameState = 'interval'; stateTimer = 0; obstacles = []; }
+        }
+        player.update(); player.draw();
+        
+        if (frameCount - lastAutoFireTime >= 27) {
+            missiles.push({ x: player.x + player.w/2 - 2, y: player.y, w: 4, h: 14, speed: 8.5 });
+            playSound('laser'); lastAutoFireTime = frameCount;
+        }
+    } else if (gameState === 'interval') {
+        stateTimer++; player.update(); player.draw();
+        if (stateTimer >= 3 * 60) { currentWave++; triggerWaveAnnounce(); }
+    }
+
+    indicators = indicators.filter(ind => { ind.life--; ind.draw(); return ind.life > 0; });
+
+    for (let m = missiles.length - 1; m >= 0; m--) {
+        missiles[m].y -= missiles[m].speed; 
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(missiles[m].x, missiles[m].y, missiles[m].w, missiles[m].h);
+        let mRemoved = false;
+
+        for (let o = obstacles.length - 1; o >= 0; o--) {
+            let obs = obstacles[o];
+            if (isColliding(missiles[m], { x: obs.x, y: obs.y, w: obs.size, h: obs.size })) {
+                obs.hp -= 10; missiles.splice(m, 1); mRemoved = true; playSound('hit');
+                floatTexts.push(new FloatText(obs.x + obs.size/2, obs.y, "10", "#ffffff"));
+                if (obs.hp <= 0) {
+                    if (currentWave < 10) { 
+                        score += obs.pts; floatTexts.push(new FloatText(obs.x + obs.size/2, obs.y - 12, "+" + obs.pts, "#38bdf8")); playSound('score'); 
+                    }
+                    obstacles.splice(o, 1);
+                }
+                break;
+            }
+        }
+        if (mRemoved) continue;
+
+        if (boss && isColliding(missiles[m], { x: boss.x, y: boss.y, w: boss.w, h: boss.h })) {
+            boss.hp -= 10; missiles.splice(m, 1); playSound('hit');
+            floatTexts.push(new FloatText(boss.x + boss.w/2, boss.y + boss.h, "10", "#ffffff"));
+            if (boss.hp <= 0) {
+                boss.hp = 0; score += 200; playSound('score'); endGame(true); return;
+            }
+            continue;
+        }
+
+        for (let b = bossProjectiles.length - 1; b >= 0; b--) {
+            let bp = bossProjectiles[b];
+            if (bp.type === 'lava' && bp.hp !== null) {
+                if (missiles[m].x < bp.x + bp.size/2 && missiles[m].x + missiles[m].w > bp.x - bp.size/2 && missiles[m].y < bp.y + bp.size/2 && missiles[m].y + missiles[m].h > bp.y - bp.size/2) {
+                    bp.hp -= 10; missiles.splice(m, 1); mRemoved = true; playSound('hit');
+                    floatTexts.push(new FloatText(bp.x, bp.y, "10", "#ffffff"));
+                    if (bp.hp <= 0) {
+                        for (let f = 0; f < 5; f++) {
+                            let fAngle = Math.random() * Math.PI * 2;
+                            bossProjectiles.push(new BossProjectile(bp.x, bp.y, Math.cos(fAngle) * 4.5, Math.sin(fAngle) * 4.5, 'lava_frag', { size: 14, color: '#f97316', dmg: 0, bounces: 3 }));
+                        }
+                        bossProjectiles.splice(b, 1);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (!mRemoved && missiles[m].y < -20) missiles.splice(m, 1);
+    }
+
+    for (let o = obstacles.length - 1; o >= 0; o--) {
+        obstacles[o].update(); obstacles[o].draw();
+        if (isColliding(player, { x: obstacles[o].x, y: obstacles[o].y, w: obstacles[o].size, h: obstacles[o].size })) {
+            playerHp -= 10; floatTexts.push(new FloatText(player.x, player.y, "-10", "#ef4444")); playSound('hurt');
+            obstacles.splice(o, 1); if (playerHp <= 0) endGame(false);
+        } else if (obstacles[o].y > canvas.height + 30) obstacles.splice(o, 1);
+    }
+
+    if (boss) {
+        boss.update(); boss.draw();
+        document.getElementById('boss-name').innerText = boss.name;
+        document.getElementById('boss-hp-txt').innerText = boss.hp + " / " + boss.maxHp;
+        document.getElementById('boss-hp-inner').style.width = (boss.hp / boss.maxHp * 100) + '%';
+
+        for (let b = bossProjectiles.length - 1; b >= 0; b--) {
+            let bp = bossProjectiles[b]; bp.update(); bp.draw();
+            
+            let distX = Math.abs(bp.x - (player.x + player.w/2));
+            let distY = Math.abs(bp.y - (player.y + player.h/2));
+            
+            if (distX < (player.w/2 + bp.size/2) && distY < (player.h/2 + bp.size/2)) {
+                if (bp.type === 'stone') { playerHp -= 15; floatTexts.push(new FloatText(player.x, player.y, "-15", "#ef4444")); }
+                else if (bp.type === 'slime') { playerHp -= 30; floatTexts.push(new FloatText(player.x, player.y, "-30", "#ef4444")); }
+                else if (bp.type === 'lava') { playerHp -= 40; floatTexts.push(new FloatText(player.x, player.y, "-40", "#ef4444")); player.dotTicks = 5; }
+                else if (bp.type === 'acid' || bp.type === 'fire' || bp.type === 'lava_frag') { player.dotTicks = 5; }
+                
+                bossProjectiles.splice(b, 1); playSound('hurt');
+                if (playerHp <= 0) endGame(false);
+            } else if (bp.y > canvas.height + 60 || bp.y < -60 || bp.x < -60 || bp.x > canvas.width + 60) {
+                bossProjectiles.splice(b, 1);
+            }
+        }
+    }
+
+    for (let t = floatTexts.length - 1; t >= 0; t--) { floatTexts[t].update(); floatTexts[t].draw(); if (floatTexts[t].alpha <= 0) floatTexts.splice(t, 1); }
+
+    document.getElementById('score-txt').innerText = score;
+    document.getElementById('hp-txt').innerText = Math.max(0, playerHp);
+    document.getElementById('hp-inner').style.width = (Math.max(0, playerHp) / 200 * 100) + '%';
+    document.getElementById('wave-txt').innerText = gameState === 'interval' ? "重整航道中" : currentWave + " / 10";
+
+    requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
