@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>宇宙戰爭 - Space War</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body { margin: 0; padding: 0; background-color: #020205; color: #fff; font-family: 'Segoe UI', "Microsoft JhengHei", sans-serif; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #game-container { position: relative; width: 800px; height: 600px; background: radial-gradient(circle, #0c1033 0%, #020208 100%); border: 3px solid #1e293b; box-shadow: 0 0 40px rgba(0, 150, 255, 0.3); cursor: none; overflow: hidden; border-radius: 8px; }
+        canvas { display: block; }
+        
+        /* 介面遮罩圖層 */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(5, 5, 12, 0.92); z-index: 100; }
+        .hidden { display: none !important; }
+        
+        h1 { font-size: 52px; color: #00f0ff; text-shadow: 0 0 20px rgba(0,240,255,0.6); margin: 0 0 25px 0; letter-spacing: 6px; font-weight: 900; }
+        
+        /* 通用按鈕 */
+        .btn { padding: 12px 40px; font-size: 20px; background: #0f172a; color: #fff; border: 2px solid #38bdf8; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .btn:hover { background: #38bdf8; color: #000; box-shadow: 0 0 20px #38bdf8; transform: scale(1.05); }
+        
+        /* 選項群組 */
+        .setting-title { color: #94a3b8; font-size: 14px; font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase; }
+        .btn-group { display: flex; margin-bottom: 20px; gap: 10px; justify-content: center; }
+        .option-btn { padding: 10px 18px; background: #111827; color: #64748b; border: 2px solid #334155; cursor: pointer; border-radius: 6px; font-weight: bold; transition: 0.2s; font-size: 14px; }
+        .option-btn.active { color: #fff; background: #0284c7; border-color: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.5); }
+        
+        /* 排行榜面板 */
+        #leaderboard { background: rgba(15, 23, 42, 0.85); border: 1px solid #334155; border-radius: 8px; padding: 15px; width: 340px; margin-bottom: 25px; text-align: center; box-shadow: inset 0 0 15px rgba(0,0,0,0.6); }
+        .score-row { display: flex; justify-content: space-between; margin: 6px 0; font-family: monospace; font-size: 15px; color: #cbd5e1; border-bottom: 1px dashed #1e293b; padding-bottom: 4px; }
+        
+        /* 抬頭顯示器 HUD */
+        #hud { position: absolute; top: 0; left: 0; width: 100%; padding: 12px 20px; display: flex; justify-content: space-between; pointer-events: none; z-index: 50; }
+        .hud-left, .hud-right, .hud-center { display: flex; flex-direction: column; gap: 8px; }
+        .hud-right { text-align: right; }
+        .hud-center { align-items: center; }
+        .hud-box { background: rgba(10, 15, 30, 0.8); padding: 8px 14px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.2); backdrop-filter: blur(6px); font-family: monospace; font-size: 14px; }
+        
+        /* 計量條外框與內裝 */
+        .bar-bg { width: 160px; height: 12px; background: #1e293b; border-radius: 6px; overflow: hidden; margin-top: 5px; border: 1px solid #334155; }
+        .bar-inner { width: 100%; height: 100%; transition: width 0.1s ease-out; }
+        #hp-inner { background: linear-gradient(90deg, #dc2626, #ef4444); }
+        #skill-inner { background: #38bdf8; }
+        
+        /* Boss 專用血條 */
+        #boss-hud { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); width: 550px; display: none; z-index: 50; }
+        .boss-bar-bg { width: 100%; height: 16px; background: #0f172a; border: 2px solid #ef4444; border-radius: 8px; overflow: hidden; box-shadow: 0 0 20px rgba(239,68,68,0.4); }
+        #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(90deg, #991b1b, #dc2626, #f87171); }
+        .boss-name-row { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; color: #f87171; font-size: 16px; text-shadow: 0 2px 4px #000; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="hud" class="hidden">
+        <div class="hud-left">
+            <div class="hud-box">
+                <span style="color: #ef4444; font-weight: bold;">飛船生命值: <span id="hp-txt">200</span> / 200</span>
+                <div class="bar-bg"><div id="hp-inner" class="bar-inner"></div></div>
+            </div>
+            <div class="hud-box">
+                <span style="color: #38bdf8; font-weight: bold;" id="skill-name">主動技能 [空白鍵]</span>
+                <div class="bar-bg"><div id="skill-inner" class="bar-inner"></div></div>
+            </div>
+        </div>
+        <div class="hud-center">
+            <div class="hud-box" style="font-size: 18px; font-weight: bold; color: #f59e0b; letter-spacing: 1px;">WAVE <span id="wave-txt">1</span> / 10</div>
+        </div>
+        <div class="hud-right">
+            <div class="hud-box">
+                <span style="color: #94a3b8; font-size: 12px; font-weight: bold;">TOTAL SCORE</span><br>
+                <span id="score-txt" style="font-size: 24px; font-weight: bold; color: #00f0ff; text-shadow: 0 0 10px rgba(0,240,255,0.3)">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="boss-hud">
+        <div class="boss-name-row"><span id="boss-name">BOSS</span><span id="boss-hp-txt">1000/1000</span></div>
+        <div class="boss-bar-bg"><div id="boss-hp-inner" class="bar-inner"></div></div>
+    </div>
+
+    <div id="main-menu" class="overlay">
+        <h1>宇宙戰爭</h1>
+        
+        <div id="leaderboard">
+            <h3 style="margin: 0 0 10px 0; color:#38bdf8; font-size: 16px;">🏆 歷史得分排行</h3>
+            <div id="lb-content">無紀錄</div>
+        </div>
+
+        <div class="setting-title">模式更換</div>
+        <div class="btn-group">
+            <button class="option-btn diff-btn active" onclick="setOpt('diff', 'easy', this)">簡單 (外星章魚)</button>
+            <button class="option-btn diff-btn" onclick="setOpt('diff', 'normal', this)">普通 (巨大史萊姆)</button>
+            <button class="option-btn diff-btn" onclick="setOpt('diff', 'hard', this)">困難 (隱形巨龍)</button>
+        </div>
+        
+        <div class="setting-title">戰術技能選擇</div>
+        <div class="btn-group">
+            <button class="option-btn skill-btn active" onclick="setOpt('skill', 'spread', this)">霰彈 (冷卻 11s)</button>
+            <button class="option-btn skill-btn" onclick="setOpt('skill', 'shield', this)">防護盾 (冷卻 9s)</button>
+            <button class="option-btn skill-btn" onclick="setOpt('skill', 'freeze', this)">絕對零度 (冷卻 10s)</button>
+        </div>
+
+        <button class="btn" onclick="startGame()" style="margin-top: 10px; font-size: 22px; padding: 12px 50px;">進入戰場</button>
+    </div>
+
+    <div id="game-over" class="overlay hidden">
+        <h1 id="end-title" style="color:#ef4444; text-shadow: 0 0 20px rgba(239,68,68,0.6)">戰體毀損</h1>
+        <p style="font-size: 22px; color: #cbd5e1; margin: 0 0 25px 0;">最終戰略得分：<span id="final-score" style="color: #00f0ff; font-size: 36px; font-weight: bold;">0</span></p>
+        <button class="btn" onclick="backToMenu()">返回主總部</button>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let gameState = 'menu'; 
+let difficulty = 'easy';
+let selectedSkill = 'spread';
+
+let score = 0, playerHp = 200, currentWave = 1, waveTimer = 0, frameCount = 0;
+let mouseX = 400, mouseY = 500, isFrozen = false;
+
+const images = {
+    player: new Image(), gravel: new Image(), comet: new Image(), meteor: new Image(), planet: new Image(), alienship: new Image(),
+    bossEasy: new Image(), bossNormal: new Image(), bossHard: new Image(), bossHardInvis: new Image(),
+    stone: new Image(), ghostFire: new Image(), acid: new Image(), lava: new Image(), fire: new Image()
+};
+
+// 載入失敗提示
+Object.keys(images).forEach(key => {
+    images[key].onerror = function() {
+        console.error(`❌ 找不到圖片： "${this.src.split('/').pop()}"`);
+    };
+});
+
+// 移除 encodeURI，直接使用檔名
+images.player.src = 'IMG_6092.PNG';
+images.gravel.src = 'IMG_6093.PNG';
+images.comet.src = 'IMG_6094.PNG';
+images.meteor.src = 'IMG_6095.PNG';
+images.planet.src = 'IMG_6096.PNG';
+images.alienship.src = 'IMG_6097.PNG';
+
+images.bossEasy.src = '章魚.png';
+images.bossNormal.src = '幽靈.png';
+images.bossHard.src = '飛龍.png';
+images.bossHardInvis.src = '隱形後.png';
+images.stone.src = '石頭.png';
+images.ghostFire.src = '鬼火.png';
+images.acid.src = '腐蝕酸.png';
+images.lava.src = '熔岩石.png';
+images.fire.src = '火焰.png';
+
+function drawSprite(img, x, y, w, h, fallbackColor, isCircle = false) {
+    if (img.complete && img.naturalWidth !== 0) {
+        ctx.drawImage(img, x, y, w, h);
+    } else {
+        ctx.fillStyle = fallbackColor;
+        if (isCircle) {
+            ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, w / 2, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillRect(x, y, w, h);
+        }
+    }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let bgmInterval = null;
+
+function playSound(type) {
+    if (audioCtx.state === 'suspended') return;
+    try {
+        let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        let now = audioCtx.currentTime;
+        
+        if (type === 'laser') {
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(900, now); osc.frequency.exponentialRampToValueAtTime(150, now + 0.12);
+            gain.gain.setValueAtTime(0.04, now); gain.gain.linearRampToValueAtTime(0, now + 0.12);
+            osc.start(); osc.stop(now + 0.12);
+        } else if (type === 'hit') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(180, now); osc.frequency.linearRampToValueAtTime(60, now + 0.08);
+            gain.gain.setValueAtTime(0.06, now); gain.gain.linearRampToValueAtTime(0, now + 0.08);
+            osc.start(); osc.stop(now + 0.08);
+        } else if (type === 'hurt') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(90, now); osc.frequency.linearRampToValueAtTime(30, now + 0.25);
+            gain.gain.setValueAtTime(0.18, now); gain.gain.linearRampToValueAtTime(0, now + 0.25);
+            osc.start(); osc.stop(now + 0.25);
+        } else if (type === 'score') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, now); osc.frequency.setValueAtTime(659.25, now + 0.06);
+            gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0, now + 0.15);
+            osc.start(); osc.stop(now + 0.15);
+        } else if (type === 'skill') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(261.63, now); osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.35);
+            gain.gain.setValueAtTime(0.08, now); gain.gain.linearRampToValueAtTime(0, now + 0.35);
+            osc.start(); osc.stop(now + 0.35);
+        } else if (type === 'bgm') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(70 + (Math.sin(now) * 10), now);
+            gain.gain.setValueAtTime(0.03, now); gain.gain.linearRampToValueAtTime(0, now + 0.4);
+            osc.start(); osc.stop(now + 0.4);
+        }
+    } catch (e) {}
+}
+
+function toggleBGM(on) {
+    if (on) { if (!bgmInterval) bgmInterval = setInterval(() => playSound('bgm'), 450); } 
+    else { if (bgmInterval) { clearInterval(bgmInterval); bgmInterval = null; } }
+}
+
+let player, obstacles = [], bullets = [], bossBullets = [], floatingTexts = [], boss = null, warnings = [];
+
+class PlayerShip {
+    constructor() {
+        this.w = 35; this.h = 35; this.x = 400; this.y = 500; this.lastFireFrame = 0; this.dotEffects = [];
+        this.skillState = 'ready'; this.skillTimer = 0; this.cooldownTimer = 0; this.isShielded = false;
+    }
+    update() {
+        this.x = mouseX - this.w / 2; this.y = mouseY - this.h / 2;
+        if (this.x < 0) this.x = 0; if (this.x > canvas.width - this.w) this.x = canvas.width - this.w;
+        if (this.y < 0) this.y = 0; if (this.y > canvas.height - this.h) this.y = canvas.height - this.h;
+
+        if (frameCount - this.lastFireFrame >= 21) {
+            bullets.push(new LaserBullet(this.x + this.w / 2 - 2, this.y, 0, -11));
+            playSound('laser');
+            this.lastFireFrame = frameCount;
+        }
+
+        this.dotEffects.forEach(dot => {
+            if (frameCount % 60 === 0 && dot.ticks > 0) {
+                this.applyDamage(dot.dmgPerSec);
+                dot.ticks--;
+            }
+        });
+        this.dotEffects = this.dotEffects.filter(d => d.ticks > 0);
+
+        if (this.skillState === 'active') {
+            this.skillTimer--;
+            if (selectedSkill === 'spread' && this.skillTimer % 60 === 0) {
+                let angles = [-0.35, -0.21, -0.07, 0.07, 0.21, 0.35];
+                angles.forEach(ang => {
+                    bullets.push(new LaserBullet(this.x + this.w/2 - 2, this.y, Math.sin(ang)*11, -Math.cos(ang)*11));
+                });
+                playSound('laser');
+            }
+            if (this.skillTimer <= 0) {
+                this.skillState = 'cooldown';
+                this.isShielded = false; isFrozen = false;
+                if (selectedSkill === 'spread') this.cooldownTimer = 11 * 60;
+                else if (selectedSkill === 'shield') this.cooldownTimer = 9 * 60;
+                else if (selectedSkill === 'freeze') this.cooldownTimer = 10 * 60;
+            }
+        } else if (this.skillState === 'cooldown') {
+            this.cooldownTimer--;
+            if (this.cooldownTimer <= 0) this.skillState = 'ready';
+        }
+    }
+    triggerSkill() {
+        if (this.skillState !== 'ready') return;
+        this.skillState = 'active';
+        playSound('skill');
+        if (selectedSkill === 'spread') this.skillTimer = 5 * 60;
+        else if (selectedSkill === 'shield') { this.skillTimer = 3 * 60; this.isShielded = true; }
+        else if (selectedSkill === 'freeze') { this.skillTimer = 5 * 60; isFrozen = true; }
+    }
+    applyDamage(amount) {
+        if (this.isShielded) return;
+        playerHp -= amount;
+        floatingTexts.push(new FloatingText(this.x + this.w/2, this.y, `-${amount}`, "#ef4444"));
+        playSound('hurt');
+        if (playerHp <= 0) triggerEndGame(false);
+    }
+    draw() {
+        ctx.save();
+        if (this.isShielded) {
+            ctx.shadowBlur = 18; ctx.shadowColor = "#38bdf8";
+            ctx.strokeStyle = "rgba(56,189,248,0.6)"; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(this.x+this.w/2, this.y+this.h/2, 26, 0, Math.PI*2); ctx.stroke();
+        }
+        if (this.dotEffects.length > 0) ctx.filter = 'drop-shadow(0px 0px 8px #22c55e)';
+        drawSprite(images.player, this.x, this.y, this.w, this.h, '#38bdf8');
+        ctx.restore();
+    }
+}
+
+class LaserBullet {
+    constructor(x, y, vx, vy) { this.w = 4; this.h = 14; this.x = x; this.y = y; this.vx = vx; this.vy = vy; }
+    update() { this.x += this.vx; this.y += this.vy; }
+    draw() { ctx.fillStyle = '#ffffff'; ctx.fillRect(this.x, this.y, this.w, this.h); }
+}
+
+class SpaceObstacle {
+    constructor(type) {
+        this.type = type; this.hp = 30; this.y = -90;
+        switch(type) {
+            case 'comet':     this.w = 35; this.h = 35; this.pts = 8;  this.img = images.comet;     this.color = '#38bdf8'; break;
+            case 'meteor':    this.w = 40; this.h = 40; this.pts = 6;  this.img = images.meteor;    this.color = '#f59e0b'; break;
+            case 'planet':    this.w = 80; this.h = 80; this.pts = 3;  this.img = images.planet;    this.color = '#10b981'; break;
+            case 'gravel':    this.w = 30; this.h = 30; this.pts = 10; this.img = images.gravel;    this.color = '#94a3b8'; break;
+            case 'alienship': this.w = 45; this.h = 45; this.pts = 4;  this.img = images.alienship; this.color = '#a855f7'; break;
+        }
+        this.x = Math.random() * (canvas.width - this.w);
+        let baseSpeed = (difficulty === 'easy') ? 1.3 : (difficulty === 'normal' ? 2.0 : 2.9);
+        this.vy = baseSpeed + (currentWave * 0.22);
+    }
+    update() { if (!isFrozen) this.y += this.vy; }
+    draw() { drawSprite(this.img, this.x, this.y, this.w, this.h, this.color, this.type !== 'alienship'); }
+}
+
+class CapitalBoss {
+    constructor() {
+        this.y = -220; this.targetY = 50; this.timer = 0; this.phaseTimer = 0;
+        if (difficulty === 'easy') {
+            this.w = 100; this.h = 100; this.hp = 450; this.name = "外星章魚"; this.img = images.bossEasy; this.color = "#a855f7"; this.vx = 0.9;
+        } else if (difficulty === 'normal') {
+            this.w = 90; this.h = 90; this.hp = 750; this.name = "巨大史萊姆"; this.img = images.bossNormal; this.color = "#22c55e"; this.vx = 2.2; this.dirCcw = true;
+        } else {
+            this.w = 130; this.h = 130; this.hp = 1000; this.name = "隱形巨龍"; this.img = images.bossHard; this.color = "#ef4444"; this.vx = 4.8; this.isInvis = false;
+        }
+        this.x = canvas.width / 2 - this.w / 2; this.maxHp = this.hp;
+    }
+    update() {
+        if (isFrozen) return;
+        if (this.y < this.targetY) { this.y += 2.5; return; }
+        
+        this.x += this.vx;
+        if (this.x < 15 || this.x + this.w > canvas.width - 15) this.vx *= -1;
+        
+        this.timer++; this.phaseTimer++;
+        let cx = this.x + this.w / 2, cy = this.y + this.h;
+        let angleToPlayer = Math.atan2((player.y + player.h/2) - cy, (player.x + player.w/2) - cx);
+
+        if (difficulty === 'easy') {
+            if (this.timer >= 240) { 
+                this.timer = 0; playSound('hit');
+                for (let i = 0; i < 10; i++) {
+                    bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 4.5) * 0.16, 2.2, 'stone'));
+                }
+            }
+        } 
+        else if (difficulty === 'normal') {
+            if (this.timer >= 240) { 
+                this.timer = 0; this.dirCcw = !this.dirCcw; playSound('hit');
+                let startAng = this.dirCcw ? angleToPlayer - 0.6 : angleToPlayer + 0.6;
+                for (let i = 0; i < 15; i++) {
+                    bossBullets.push(new BossProjectile(cx, cy, startAng + (this.dirCcw ? 1 : -1) * i * 0.14, 3.4, 'slime_bounce'));
+                }
+            }
+            if (this.phaseTimer === 360) {
+                warnings.push(new FloatingText(canvas.width/2, 280, "⚠️ 偵測到強力強酸柱噴發警告 ⚠️", "#22c55e", 180, true));
+            }
+            if (this.phaseTimer >= 540) {
+                this.phaseTimer = 0;
+                for (let i = 0; i < 24; i++) {
+                    if (i >= 10 && i <= 13) continue; 
+                    setTimeout(() => {
+                        if (boss && !isFrozen && gameState === 'playing') {
+                            bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 11.5) * 0.12, 4.5, 'acid_pillar'));
+                        }
+                    }, i * 45);
+                }
+            }
+        } 
+        else {
+            this.isInvis = (this.timer % 360 >= 60);
+
+            if (this.timer % 240 === 0) { 
+                playSound('hit');
+                for (let i = 0; i < 5; i++) {
+                    bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 2) * 0.26, 5.0, 'lava'));
+                }
+            }
+            if (this.phaseTimer === 420) {
+                warnings.push(new FloatingText(canvas.width/2, 280, "⚠️ 🔥 隱形巨龍即將釋放毀滅龍息 🔥 ⚠️", "#ef4444", 180, true));
+            }
+            if (this.phaseTimer >= 600) { this.phaseTimer = 0; this.flameTicks = 0; }
+            
+            if (this.flameTicks !== undefined && this.flameTicks < 240) { 
+                this.flameTicks++;
+                if (this.flameTicks % 4 === 0 && !isFrozen) {
+                    let maxSpread = (this.flameTicks / 240) * 1.0;
+                    let sCurve = Math.sin(this.flameTicks * 0.12) * maxSpread;
+                    bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + sCurve, 6.0, 'fire_aoe'));
+                }
+            }
+        }
+    }
+    draw() {
+        ctx.save();
+        if (difficulty === 'hard' && this.isInvis) {
+            ctx.globalAlpha = 0.15;
+            drawSprite(images.bossHardInvis, this.x, this.y, this.w, this.h, '#450a0a');
+        } else {
+            drawSprite(this.img, this.x, this.y, this.w, this.h, this.color);
+        }
+        ctx.restore();
+    }
+}
+
+class BossProjectile {
+    constructor(x, y, angle, speed, type) {
+        this.x = x; this.y = y; this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed; this.type = type;
+        this.bounces = 0; this.dot = 0;
+        
+        switch(type) {
+            case 'stone':
+                this.size = 30; this.dmg = 15; this.hp = 10;  this.img = images.stone;     this.color = '#a8a29e'; break;
+            case 'slime_bounce':
+                this.size = 20; this.dmg = 30; this.hp = 10;  this.img = images.ghostFire; this.color = '#4ade80'; this.bounces = 3; break;
+            case 'acid_pillar':
+                this.size = 26; this.dmg = 0;  this.hp = 999; this.img = images.acid;      this.color = '#22c55e'; this.dot = 5; break;
+            case 'lava':
+                this.size = 40; this.dmg = 40; this.hp = 30;  this.img = images.lava;      this.color = '#ea580c'; this.dot = 5; break;
+            case 'lava_fragment':
+                this.size = 15; this.dmg = 15; this.hp = 999; this.img = images.lava;      this.color = '#f97316'; this.bounces = 4; break;
+            case 'fire_aoe':
+                this.size = 38; this.dmg = 0;  this.hp = 999; this.img = images.fire;      this.color = '#ef4444'; this.dot = 5; break;
+        }
+    }
+    update() {
+        if (isFrozen) return;
+        this.x += this.vx; this.y += this.vy;
+        if (this.bounces > 0) {
+            if (this.x <= this.size/2 || this.x >= canvas.width - this.size/2) { this.vx *= -1; this.bounces--; }
+            if (this.y <= this.size/2) { this.vy *= -1; this.bounces--; }
+        }
+    }
+    draw() { drawSprite(this.img, this.x - this.size/2, this.y - this.size/2, this.size, this.size, this.color, true); }
+}
+
+class FloatingText {
+    constructor(x, y, txt, color, life = 55, isCenter = false) {
+        this.x = x; this.y = y; this.txt = txt; this.color = color; this.life = life; this.maxLife = life; this.isCenter = isCenter;
+    }
+    update() { if (!isFrozen) { if (!this.isCenter) this.y -= 1.1; this.life--; } }
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.life / this.maxLife;
+        ctx.fillStyle = this.color;
+        if (this.isCenter) {
+            ctx.font = "bold 26px sans-serif"; ctx.textAlign = "center";
+        } else {
+            ctx.font = "bold 18px monospace"; ctx.textAlign = "center";
+        }
+        ctx.fillText(this.txt, this.x, this.y);
+        ctx.restore();
+    }
+}
+
+function spawnWaveSystem() {
+    if (isFrozen || waveTimer > 17 * 60) return;
+    
+    let spawnRate = Math.max(16, 58 - currentWave * 4.5);
+    if (frameCount % Math.floor(spawnRate) === 0) {
+        if (currentWave === 10) {
+            obstacles.push(new SpaceObstacle('alienship')); 
+        } else {
+            let roll = Math.random() * 12;
+            if (roll < 1)       obstacles.push(new SpaceObstacle('comet'));
+            else if (roll < 4)  obstacles.push(new SpaceObstacle('meteor'));
+            else if (roll < 6)  obstacles.push(new SpaceObstacle('planet'));
+            else if (roll < 8)  obstacles.push(new SpaceObstacle('gravel'));
+            else                obstacles.push(new SpaceObstacle('alienship'));
+        }
+    }
+}
+
+function checkRectOverlap(x1, y1, w1, h1, x2, y2, w2, h2) {
+    return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+}
+
+function triggerEndGame(isVictory) {
+    gameState = 'gameover';
+    toggleBGM(false);
+    const overMenu = document.getElementById('game-over');
+    const endTitle = document.getElementById('end-title');
+    
+    overMenu.classList.remove('hidden');
+    document.getElementById('final-score').innerText = score;
+    
+    if (isVictory) {
+        endTitle.innerText = "戰役勝利 👑"; endTitle.style.color = "#10b981";
+    } else {
+        endTitle.innerText = "戰體毀損 💥"; endTitle.style.color = "#ef4444";
+    }
+    commitLeaderboard();
+}
+
+function gameLoopRunner() {
+    if (gameState === 'menu' || gameState === 'gameover') return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    frameCount++;
+
+    if (gameState === 'interval') {
+        if (!isFrozen) waveTimer++;
+        ctx.save();
+        ctx.fillStyle = "#f59e0b"; ctx.font = "bold 38px sans-serif"; ctx.textAlign = "center";
+        let titleTxt = (currentWave === 10) ? "⚠️ 最終波：決戰首領 ⚠️" : `📡 第 ${currentWave} 波星際襲擊即將抵達`;
+        ctx.fillText(titleTxt, canvas.width / 2, canvas.height / 2);
+        ctx.restore();
+
+        if (waveTimer >= 3 * 60) { 
+            gameState = 'playing'; waveTimer = 0;
+            if (currentWave === 10) {
+                boss = new CapitalBoss();
+                document.getElementById('boss-hud').style.display = 'block';
+            }
+        }
+    } 
+    else if (gameState === 'playing') {
+        if (!isFrozen) waveTimer++;
+        if (currentWave < 10 && waveTimer >= 17 * 60) {
+            gameState = 'interval'; waveTimer = 0;
+            currentWave++; obstacles = []; bullets = [];
+        }
+        spawnWaveSystem();
+    }
+
+    player.update(); player.draw();
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i]; b.update(); b.draw();
+        let bulletHit = false;
+
+        for (let j = obstacles.length - 1; j >= 0; j--) {
+            let obs = obstacles[j];
+            if (checkRectOverlap(b.x, b.y, b.w, b.h, obs.x, obs.y, obs.w, obs.h)) {
+                obs.hp -= 10;
+                floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y, "10", "#ffffff")); 
+                bulletHit = true;
+                if (obs.hp <= 0) {
+                    if (currentWave < 10) { 
+                        score += obs.pts;
+                        floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y - 12, `+${obs.pts}`, "#3b82f6")); 
+                        playSound('score');
+                    }
+                    obstacles.splice(j, 1);
+                }
+                break;
+            }
+        }
+
+        if (!bulletHit && boss && !(difficulty === 'hard' && boss.isInvis)) {
+            if (checkRectOverlap(b.x, b.y, b.w, b.h, boss.x, boss.y, boss.w, boss.h)) {
+                boss.hp -= 10;
+                floatingTexts.push(new FloatingText(b.x, b.y, "10", "#ffffff"));
+                bulletHit = true;
+                if (boss.hp <= 0) {
+                    score += 200; 
+                    floatingTexts.push(new FloatingText(boss.x + boss.w/2, boss.y + boss.h/2, "+200", "#3b82f6"));
+                    playSound('score');
+                    triggerEndGame(true);
+                    return;
+                }
+            }
+        }
+
+        if (!bulletHit && boss) {
+            for (let k = bossBullets.length - 1; k >= 0; k--) {
+                let bb = bossBullets[k];
+                if (bb.hp < 999 && checkRectOverlap(b.x, b.y, b.w, b.h, bb.x - bb.size/2, bb.y - bb.size/2, bb.size, bb.size)) {
+                    bb.hp -= 10;
+                    floatingTexts.push(new FloatingText(bb.x, bb.y, "10", "#ffffff"));
+                    bulletHit = true;
+                    if (bb.hp <= 0) {
+                        if (bb.type === 'lava') { 
+                            for (let f = 0; f < 5; f++) {
+                                bossBullets.push(new BossProjectile(bb.x, bb.y, Math.random() * Math.PI * 2, 3.8, 'lava_fragment'));
+                            }
+                        }
+                        bossBullets.splice(k, 1);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (bulletHit || b.y < -20) bullets.splice(i, 1);
+    }
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        let obs = obstacles[i]; obs.update(); obs.draw();
+        if (checkRectOverlap(player.x, player.y, player.w, player.h, obs.x, obs.y, obs.w, obs.h)) {
+            player.applyDamage(5); 
+            obstacles.splice(i, 1);
+        } else if (obs.y > canvas.height + 20) {
+            obstacles.splice(i, 1);
+        }
+    }
+
+    if (boss) {
+        boss.update(); boss.draw();
+        document.getElementById('boss-name').innerText = `【戰場首領】${boss.name}`;
+        document.getElementById('boss-hp-txt').innerText = `${Math.max(0, boss.hp)} / ${boss.maxHp}`;
+        document.getElementById('boss-hp-inner').style.width = (Math.max(0, boss.hp) / boss.maxHp * 100) + '%';
+        
+        for (let i = bossBullets.length - 1; i >= 0; i--) {
+            let bb = bossBullets[i]; bb.update(); bb.draw();
+            let hitBox = { x: bb.x - bb.size/2 + 4, y: bb.y - bb.size/2 + 4, w: bb.size - 8, h: bb.size - 8 };
+            
+            if (checkRectOverlap(player.x, player.y, player.w, player.h, hitBox.x, hitBox.y, hitBox.w, hitBox.h)) {
+                if (bb.dmg > 0) player.applyDamage(bb.dmg);
+                if (bb.dot > 0) player.dotEffects.push({ dmgPerSec: bb.dot, ticks: 5 }); 
+                
+                if (bb.type !== 'acid_pillar' && bb.type !== 'fire_aoe') bossBullets.splice(i, 1);
+            } else if (bb.y > canvas.height + 60 || bb.y < -60 || bb.x < -60 || bb.x > canvas.width + 60) {
+                bossBullets.splice(i, 1);
+            }
+        }
+    }
+
+    if (isFrozen) {
+        ctx.fillStyle = "rgba(56, 189, 248, 0.12)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    for (let i = floatingTexts.length - 1; i >= 0; i--) { floatingTexts[i].update(); floatingTexts[i].draw(); if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1); }
+    for (let i = warnings.length - 1; i >= 0; i--) { warnings[i].update(); warnings[i].draw(); if (warnings[i].life <= 0) warnings.splice(i, 1); }
+
+    document.getElementById('score-txt').innerText = score;
+    document.getElementById('hp-txt').innerText = Math.max(0, playerHp);
+    document.getElementById('hp-inner').style.width = (Math.max(0, playerHp) / 200 * 100) + '%';
+    document.getElementById('wave-txt').innerText = (gameState === 'interval') ? currentWave - 1 : currentWave;
+    
+    let specPct = 100;
+    if (player.skillState === 'active') {
+        let maxAct = (selectedSkill === 'spread' || selectedSkill === 'freeze') ? 300 : 180;
+        specPct = (player.skillTimer / maxAct) * 100;
+    } else if (player.skillState === 'cooldown') {
+        let maxCd = (selectedSkill === 'spread') ? 660 : ((selectedSkill === 'shield') ? 540 : 600);
+        specPct = 100 - (player.cooldownTimer / maxCd) * 100;
+    }
+    const skInner = document.getElementById('skill-inner');
+    skInner.style.width = specPct + '%';
+    skInner.style.background = (player.skillState === 'ready') ? '#38bdf8' : ((player.skillState === 'active') ? '#f59e0b' : '#475569');
+
+    requestAnimationFrame(gameLoopRunner);
+}
+
+window.addEventListener('keydown', e => { if (e.code === 'Space' && gameState === 'playing') player.triggerSkill(); });
+canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mouseX = e.clientX - r.left; mouseY = e.clientY - r.top; });
+
+function setOpt(category, value, element) {
+    if (category === 'diff') {
+        difficulty = value; document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+    } else if (category === 'skill') {
+        selectedSkill = value; document.querySelectorAll('.skill-btn').forEach(b => b.classList.remove('active'));
+    }
+    element.classList.add('active');
+}
+
+function startGame() {
+    audioCtx.resume().then(() => toggleBGM(true));
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('boss-hud').style.display = 'none';
+    
+    let skLabel = (selectedSkill === 'spread') ? "霰彈爆發" : ((selectedSkill === 'shield') ? "全方位防護盾" : "絕對零度");
+    document.getElementById('skill-name').innerText = `[空白鍵] ${skLabel}`;
+    
+    score = 0; playerHp = 200; currentWave = 1; waveTimer = 0; frameCount = 0; boss = null; isFrozen = false;
+    player = new PlayerShip(); obstacles = []; bullets = []; bossBullets = []; floatingTexts = []; warnings = [];
+    
+    gameState = 'interval';
+    requestAnimationFrame(gameLoopRunner);
+}
+
+function backToMenu() {
+    document.getElementById('game-over').classList.add('hidden');
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('boss-hud').style.display = 'none';
+    document.getElementById('main-menu').classList.remove('hidden');
+    gameState = 'menu';
+    loadLeaderboard();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function commitLeaderboard() {
+    let list = JSON.parse(localStorage.getItem('space_war_ranking') || '[]');
+    let diffName = (difficulty === 'easy') ? '簡單' : ((difficulty === 'normal') ? '普通' : '困難');
+    list.push({ score: score, diff: diffName, date: new Date().toLocaleDateString() });
+    list.sort((a, b) => b.score - a.score);
+    list = list.slice(0, 5); 
+    localStorage.setItem('space_war_ranking', JSON.stringify(list));
+}
+
+function loadLeaderboard() {
+    let list = JSON.parse(localStorage.getItem('space_war_ranking') || '[]');
+    let innerHtml = '';
+    if (list.length === 0) {
+        innerHtml = '<div style="color:#475569; font-size:13px;">暫無星際航行紀錄</div>';
+    } else {
+        list.forEach((entry, idx) => {
+            innerHtml += `<div class="score-row"><span>#${idx + 1} 航線 (${entry.diff})</span><span style="color:#00f0ff; font-weight:bold;">${entry.score} Pts</span></div>`;
+        });
+    }
+    document.getElementById('lb-content').innerHTML = innerHtml;
+}
+
+loadLeaderboard();
+</
