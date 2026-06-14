@@ -125,31 +125,39 @@ let selectedSkill = 'spread';
 let score = 0, playerHp = 200, currentWave = 1, waveTimer = 0, frameCount = 0;
 let mouseX = 400, mouseY = 500, isFrozen = false;
 
-// 整合所有上傳的資源圖片
+// 宣告所有圖片物件
 const images = {
     player: new Image(), gravel: new Image(), comet: new Image(), meteor: new Image(), planet: new Image(), alienship: new Image(),
     bossEasy: new Image(), bossNormal: new Image(), bossHard: new Image(), bossHardInvis: new Image(),
     stone: new Image(), ghostFire: new Image(), acid: new Image(), lava: new Image(), fire: new Image()
 };
 
-// 檔案路徑與變數映射
+// 智慧除錯監聽器：如果圖片載入失敗，直接在 Console 印出明確通知
+Object.keys(images).forEach(key => {
+    images[key].onerror = function() {
+        console.error(`❌ 圖片載入失敗！找不到檔案。請檢查你的資料夾中是否有個檔案叫做： "${decodeURI(this.src.split('/').pop())}" (注意檢查大小寫與檔名序號)`);
+    };
+});
+
+// 建立安全的路徑綁定 (加入 encodeURI 防止中文檔名在 local 端解析出錯)
 images.player.src = 'IMG_6092.PNG';
 images.gravel.src = 'IMG_6093.PNG';
 images.comet.src = 'IMG_6094.PNG';
 images.meteor.src = 'IMG_6095.PNG';
 images.planet.src = 'IMG_6096.PNG';
 images.alienship.src = 'IMG_6097.PNG';
-images.bossEasy.src = '章魚.png';
-images.bossNormal.src = '幽靈.png';
-images.bossHard.src = '飛龍.png';
-images.bossHardInvis.src = '隱形後.png';
-images.stone.src = '石頭.png';
-images.ghostFire.src = '鬼火.png';
-images.acid.src = '腐蝕酸.png';
-images.lava.src = '熔岩石.png';
-images.fire.src = '火焰.png';
 
-// 智慧防爆繪圖渲染器
+images.bossEasy.src = encodeURI('章魚.png');
+images.bossNormal.src = encodeURI('幽靈.png');
+images.bossHard.src = encodeURI('飛龍.png');
+images.bossHardInvis.src = encodeURI('隱形後.png');
+images.stone.src = encodeURI('石頭.png');
+images.ghostFire.src = encodeURI('鬼火.png');
+images.acid.src = encodeURI('腐蝕酸.png');
+images.lava.src = encodeURI('熔岩石.png');
+images.fire.src = encodeURI('火焰.png');
+
+// 智慧防爆繪圖渲染器 (若未載入成功，會自動改用幾何圖形暫代，不至於閃退)
 function drawSprite(img, x, y, w, h, fallbackColor, isCircle = false) {
     if (img.complete && img.naturalWidth !== 0) {
         ctx.drawImage(img, x, y, w, h);
@@ -163,7 +171,7 @@ function drawSprite(img, x, y, w, h, fallbackColor, isCircle = false) {
     }
 }
 
-// ================= 網頁音訊合成引擎 (無須外掛音檔) =================
+// ================= 網頁音訊合成引擎 =================
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let bgmInterval = null;
 
@@ -212,23 +220,20 @@ let player, obstacles = [], bullets = [], bossBullets = [], floatingTexts = [], 
 
 class PlayerShip {
     constructor() {
-        this.w = 30; this.h = 30; this.x = 400; this.y = 500; this.lastFireFrame = 0; this.dotEffects = [];
+        this.w = 35; this.h = 35; this.x = 400; this.y = 500; this.lastFireFrame = 0; this.dotEffects = [];
         this.skillState = 'ready'; this.skillTimer = 0; this.cooldownTimer = 0; this.isShielded = false;
     }
     update() {
-        // 飛船跟隨滑鼠，絕對零度時飛船依然可以自由移動
         this.x = mouseX - this.w / 2; this.y = mouseY - this.h / 2;
         if (this.x < 0) this.x = 0; if (this.x > canvas.width - this.w) this.x = canvas.width - this.w;
         if (this.y < 0) this.y = 0; if (this.y > canvas.height - this.h) this.y = canvas.height - this.h;
 
-        // 每 0.35 秒發射一次飛彈 (0.35 * 60 = 21 幀)
         if (frameCount - this.lastFireFrame >= 21) {
             bullets.push(new LaserBullet(this.x + this.w / 2 - 2, this.y, 0, -11));
             playSound('laser');
             this.lastFireFrame = frameCount;
         }
 
-        // 持續扣血傷害 (DoT) 邏輯處理
         this.dotEffects.forEach(dot => {
             if (frameCount % 60 === 0 && dot.ticks > 0) {
                 this.applyDamage(dot.dmgPerSec);
@@ -237,10 +242,8 @@ class PlayerShip {
         });
         this.dotEffects = this.dotEffects.filter(d => d.ticks > 0);
 
-        // 戰術主動技能狀態機
         if (this.skillState === 'active') {
             this.skillTimer--;
-            // 霰彈持續時間：每秒(60幀)向前圓弧式爆發 6 發飛彈
             if (selectedSkill === 'spread' && this.skillTimer % 60 === 0) {
                 let angles = [-0.35, -0.21, -0.07, 0.07, 0.21, 0.35];
                 angles.forEach(ang => {
@@ -316,11 +319,11 @@ class CapitalBoss {
     constructor() {
         this.y = -220; this.targetY = 50; this.timer = 0; this.phaseTimer = 0;
         if (difficulty === 'easy') {
-            this.w = 85; this.h = 85; this.hp = 450; this.name = "外星章魚"; this.img = images.bossEasy; this.color = "#a855f7"; this.vx = 0.9;
+            this.w = 100; this.h = 100; this.hp = 450; this.name = "外星章魚"; this.img = images.bossEasy; this.color = "#a855f7"; this.vx = 0.9;
         } else if (difficulty === 'normal') {
-            this.w = 25; this.h = 25; this.hp = 750; this.name = "巨大史萊姆"; this.img = images.bossNormal; this.color = "#22c55e"; this.vx = 2.2; this.dirCcw = true;
+            this.w = 90; this.h = 90; this.hp = 750; this.name = "巨大史萊姆"; this.img = images.bossNormal; this.color = "#22c55e"; this.vx = 2.2; this.dirCcw = true;
         } else {
-            this.w = 120; this.h = 120; this.hp = 1000; this.name = "隱形巨龍"; this.img = images.bossHard; this.color = "#ef4444"; this.vx = 4.8; this.isInvis = false;
+            this.w = 130; this.h = 130; this.hp = 1000; this.name = "隱形巨龍"; this.img = images.bossHard; this.color = "#ef4444"; this.vx = 4.8; this.isInvis = false;
         }
         this.x = canvas.width / 2 - this.w / 2; this.maxHp = this.hp;
     }
@@ -335,32 +338,29 @@ class CapitalBoss {
         let cx = this.x + this.w / 2, cy = this.y + this.h;
         let angleToPlayer = Math.atan2((player.y + player.h/2) - cy, (player.x + player.w/2) - cx);
 
-        // --- 簡單模式：外星章魚 ---
         if (difficulty === 'easy') {
-            if (this.timer >= 300) { // 每5秒
+            if (this.timer >= 240) { 
                 this.timer = 0; playSound('hit');
                 for (let i = 0; i < 10; i++) {
                     bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 4.5) * 0.16, 2.2, 'stone'));
                 }
             }
         } 
-        // --- 普通模式：巨大史萊姆 ---
         else if (difficulty === 'normal') {
-            if (this.timer >= 300) { // 每5秒反彈子彈
+            if (this.timer >= 240) { 
                 this.timer = 0; this.dirCcw = !this.dirCcw; playSound('hit');
                 let startAng = this.dirCcw ? angleToPlayer - 0.6 : angleToPlayer + 0.6;
                 for (let i = 0; i < 15; i++) {
                     bossBullets.push(new BossProjectile(cx, cy, startAng + (this.dirCcw ? 1 : -1) * i * 0.14, 3.4, 'slime_bounce'));
                 }
             }
-            // 每9秒噴腐蝕酸(540幀)，提前3秒預警(360幀)
             if (this.phaseTimer === 360) {
                 warnings.push(new FloatingText(canvas.width/2, 280, "⚠️ 偵測到強力強酸柱噴發警告 ⚠️", "#22c55e", 180, true));
             }
             if (this.phaseTimer >= 540) {
                 this.phaseTimer = 0;
                 for (let i = 0; i < 24; i++) {
-                    if (i >= 10 && i <= 13) continue; // 預留安全間隔供飛船閃躲
+                    if (i >= 10 && i <= 13) continue; 
                     setTimeout(() => {
                         if (boss && !isFrozen && gameState === 'playing') {
                             bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 11.5) * 0.12, 4.5, 'acid_pillar'));
@@ -369,27 +369,24 @@ class CapitalBoss {
                 }
             }
         } 
-        // --- 困難模式：隱形巨龍 ---
         else {
-            // 每6秒週期，隱形5秒 (300幀隱形，60幀現身)
             this.isInvis = (this.timer % 360 >= 60);
 
-            if (this.timer % 300 === 0) { // 每5秒熔岩石
+            if (this.timer % 240 === 0) { 
                 playSound('hit');
                 for (let i = 0; i < 5; i++) {
                     bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + (i - 2) * 0.26, 5.0, 'lava'));
                 }
             }
-            // 每11秒龍息(660幀)，提前3秒預警(480幀)
-            if (this.phaseTimer === 480) {
+            if (this.phaseTimer === 420) {
                 warnings.push(new FloatingText(canvas.width/2, 280, "⚠️ 🔥 隱形巨龍即將釋放毀滅龍息 🔥 ⚠️", "#ef4444", 180, true));
             }
-            if (this.phaseTimer >= 660) { this.phaseTimer = 0; this.flameTicks = 0; }
+            if (this.phaseTimer >= 600) { this.phaseTimer = 0; this.flameTicks = 0; }
             
-            if (this.flameTicks !== undefined && this.flameTicks < 300) { // 持續5秒
+            if (this.flameTicks !== undefined && this.flameTicks < 240) { 
                 this.flameTicks++;
                 if (this.flameTicks % 4 === 0 && !isFrozen) {
-                    let maxSpread = (this.flameTicks / 300) * 1.0;
+                    let maxSpread = (this.flameTicks / 240) * 1.0;
                     let sCurve = Math.sin(this.flameTicks * 0.12) * maxSpread;
                     bossBullets.push(new BossProjectile(cx, cy, angleToPlayer + sCurve, 6.0, 'fire_aoe'));
                 }
@@ -399,7 +396,7 @@ class CapitalBoss {
     draw() {
         ctx.save();
         if (difficulty === 'hard' && this.isInvis) {
-            ctx.globalAlpha = 0.12;
+            ctx.globalAlpha = 0.15;
             drawSprite(images.bossHardInvis, this.x, this.y, this.w, this.h, '#450a0a');
         } else {
             drawSprite(this.img, this.x, this.y, this.w, this.h, this.color);
@@ -465,9 +462,8 @@ function spawnWaveSystem() {
     let spawnRate = Math.max(16, 58 - currentWave * 4.5);
     if (frameCount % Math.floor(spawnRate) === 0) {
         if (currentWave === 10) {
-            obstacles.push(new SpaceObstacle('alienship')); // 第10波純出外星飛船
+            obstacles.push(new SpaceObstacle('alienship')); 
         } else {
-            // 權重比例分配 1:3:2:2:4 (總和 12)
             let roll = Math.random() * 12;
             if (roll < 1)       obstacles.push(new SpaceObstacle('comet'));
             else if (roll < 4)  obstacles.push(new SpaceObstacle('meteor'));
@@ -504,7 +500,6 @@ function gameLoopRunner() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     frameCount++;
 
-    // --- 波次過渡倒數階段 ---
     if (gameState === 'interval') {
         if (!isFrozen) waveTimer++;
         ctx.save();
@@ -513,7 +508,7 @@ function gameLoopRunner() {
         ctx.fillText(titleTxt, canvas.width / 2, canvas.height / 2);
         ctx.restore();
 
-        if (waveTimer >= 3 * 60) { // 3秒間隔
+        if (waveTimer >= 3 * 60) { 
             gameState = 'playing'; waveTimer = 0;
             if (currentWave === 10) {
                 boss = new CapitalBoss();
@@ -521,7 +516,6 @@ function gameLoopRunner() {
             }
         }
     } 
-    // --- 實時戰鬥階段 ---
     else if (gameState === 'playing') {
         if (!isFrozen) waveTimer++;
         // 每波精確持時 17 秒
@@ -534,22 +528,20 @@ function gameLoopRunner() {
 
     player.update(); player.draw();
 
-    // 玩家武裝飛彈更新與撞擊運算
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i]; b.update(); b.draw();
         let bulletHit = false;
 
-        // 碰撞一般障礙物
         for (let j = obstacles.length - 1; j >= 0; j--) {
             let obs = obstacles[j];
             if (checkRectOverlap(b.x, b.y, b.w, b.h, obs.x, obs.y, obs.w, obs.h)) {
                 obs.hp -= 10;
-                floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y, "10", "#ffffff")); // 擊中白色
+                floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y, "10", "#ffffff")); 
                 bulletHit = true;
                 if (obs.hp <= 0) {
-                    if (currentWave < 10) { // 前9波加分可視化
+                    if (currentWave < 10) { 
                         score += obs.pts;
-                        floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y - 12, `+${obs.pts}`, "#3b82f6")); // 加分藍色
+                        floatingTexts.push(new FloatingText(obs.x + obs.w/2, obs.y - 12, `+${obs.pts}`, "#3b82f6")); 
                         playSound('score');
                     }
                     obstacles.splice(j, 1);
@@ -558,14 +550,13 @@ function gameLoopRunner() {
             }
         }
 
-        // 碰撞 Boss 實體 (巨龍隱形時免疫傷害)
         if (!bulletHit && boss && !(difficulty === 'hard' && boss.isInvis)) {
             if (checkRectOverlap(b.x, b.y, b.w, b.h, boss.x, boss.y, boss.w, boss.h)) {
                 boss.hp -= 10;
                 floatingTexts.push(new FloatingText(b.x, b.y, "10", "#ffffff"));
                 bulletHit = true;
                 if (boss.hp <= 0) {
-                    score += 200; // 擊敗 Boss 獲取 200 分
+                    score += 200; 
                     floatingTexts.push(new FloatingText(boss.x + boss.w/2, boss.y + boss.h/2, "+200", "#3b82f6"));
                     playSound('score');
                     triggerEndGame(true);
@@ -574,7 +565,6 @@ function gameLoopRunner() {
             }
         }
 
-        // 碰撞 Boss 可擊破之子彈
         if (!bulletHit && boss) {
             for (let k = bossBullets.length - 1; k >= 0; k--) {
                 let bb = bossBullets[k];
@@ -583,7 +573,7 @@ function gameLoopRunner() {
                     floatingTexts.push(new FloatingText(bb.x, bb.y, "10", "#ffffff"));
                     bulletHit = true;
                     if (bb.hp <= 0) {
-                        if (bb.type === 'lava') { // 熔岩石被擊破後飛濺5塊反彈碎片
+                        if (bb.type === 'lava') { 
                             for (let f = 0; f < 5; f++) {
                                 bossBullets.push(new BossProjectile(bb.x, bb.y, Math.random() * Math.PI * 2, 3.8, 'lava_fragment'));
                             }
@@ -598,18 +588,16 @@ function gameLoopRunner() {
         if (bulletHit || b.y < -20) bullets.splice(i, 1);
     }
 
-    // 一般障礙物威脅玩家判定
     for (let i = obstacles.length - 1; i >= 0; i--) {
         let obs = obstacles[i]; obs.update(); obs.draw();
         if (checkRectOverlap(player.x, player.y, player.w, player.h, obs.x, obs.y, obs.w, obs.h)) {
-            player.applyDamage(5); // 被撞擊扣 5 HP
+            player.applyDamage(5); 
             obstacles.splice(i, 1);
         } else if (obs.y > canvas.height + 20) {
             obstacles.splice(i, 1);
         }
     }
 
-    // Boss 戰術武裝與彈幕渲染
     if (boss) {
         boss.update(); boss.draw();
         document.getElementById('boss-name').innerText = `【戰場首領】${boss.name}`;
@@ -622,9 +610,8 @@ function gameLoopRunner() {
             
             if (checkRectOverlap(player.x, player.y, player.w, player.h, hitBox.x, hitBox.y, hitBox.w, hitBox.h)) {
                 if (bb.dmg > 0) player.applyDamage(bb.dmg);
-                if (bb.dot > 0) player.dotEffects.push({ dmgPerSec: bb.dot, ticks: 5 }); // 持續傷害 5 秒
+                if (bb.dot > 0) player.dotEffects.push({ dmgPerSec: bb.dot, ticks: 5 }); 
                 
-                // 範圍柱狀與射流持續型傷害不因碰撞消失
                 if (bb.type !== 'acid_pillar' && bb.type !== 'fire_aoe') bossBullets.splice(i, 1);
             } else if (bb.y > canvas.height + 60 || bb.y < -60 || bb.x < -60 || bb.x > canvas.width + 60) {
                 bossBullets.splice(i, 1);
@@ -632,22 +619,18 @@ function gameLoopRunner() {
         }
     }
 
-    // 絕對零度環境視覺特效
     if (isFrozen) {
         ctx.fillStyle = "rgba(56, 189, 248, 0.12)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // 文字公告與浮動提示刷新
     for (let i = floatingTexts.length - 1; i >= 0; i--) { floatingTexts[i].update(); floatingTexts[i].draw(); if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1); }
     for (let i = warnings.length - 1; i >= 0; i--) { warnings[i].update(); warnings[i].draw(); if (warnings[i].life <= 0) warnings.splice(i, 1); }
 
-    // 實時更新控制介面 HUD 數值
     document.getElementById('score-txt').innerText = score;
     document.getElementById('hp-txt').innerText = Math.max(0, playerHp);
     document.getElementById('hp-inner').style.width = (Math.max(0, playerHp) / 200 * 100) + '%';
     document.getElementById('wave-txt').innerText = (gameState === 'interval') ? currentWave - 1 : currentWave;
     
-    // 技能計量條系統控制
     let specPct = 100;
     if (player.skillState === 'active') {
         let maxAct = (selectedSkill === 'spread' || selectedSkill === 'freeze') ? 300 : 180;
@@ -708,7 +691,7 @@ function commitLeaderboard() {
     let diffName = (difficulty === 'easy') ? '簡單' : ((difficulty === 'normal') ? '普通' : '困難');
     list.push({ score: score, diff: diffName, date: new Date().toLocaleDateString() });
     list.sort((a, b) => b.score - a.score);
-    list = list.slice(0, 5); // 紀錄前五名
+    list = list.slice(0, 5); 
     localStorage.setItem('space_war_ranking', JSON.stringify(list));
 }
 
@@ -725,7 +708,6 @@ function loadLeaderboard() {
     document.getElementById('lb-content').innerHTML = innerHtml;
 }
 
-// 初始化排行榜
 loadLeaderboard();
 </script>
 
